@@ -1,11 +1,17 @@
 import type {
+  AutoscaleInfo,
   ISeriesPrimitive,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
+  PrimitiveHoveredItem,
   SeriesAttachedParameter,
   Time,
 } from 'lightweight-charts';
-import type { SupportResistancePair } from '../types';
+import type { ChartTheme, SupportResistancePair } from '../types';
+import { colorWithAlpha } from '../chartUtils';
+
+const EDGE_DASH = 6;
+const EDGE_GAP = 4;
 
 /**
  * Renders a support/resistance pair as a single paired object:
@@ -15,32 +21,63 @@ import type { SupportResistancePair } from '../types';
  * horizontal-line series that merely sit near each other.
  */
 export class SRPairPrimitive implements ISeriesPrimitive<Time> {
-  private _paneView: SRPairPaneView;
+  readonly key: string;
+  private readonly paneView: SRPairPaneView;
   private _data: SupportResistancePair;
-  private _chart: SeriesAttachedParameter<Time>['chart'] | null = null;
-  private _series: SeriesAttachedParameter<Time>['series'] | null = null;
+  private theme: ChartTheme;
+  private seriesApi: SeriesAttachedParameter<Time>['series'] | null = null;
+  private requestUpdate: (() => void) | null = null;
+  private renderedBand: { top: number; bottom: number } | null = null;
 
-  constructor(data: SupportResistancePair) {
+  constructor(data: SupportResistancePair, theme: ChartTheme) {
+    this.key = `sr-pair:${data.id}`;
     this._data = data;
-    this._paneView = new SRPairPaneView(this);
+    this.theme = theme;
+    this.paneView = new SRPairPaneView(this);
   }
 
   attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart;
-    this._series = param.series;
+    this.seriesApi = param.series;
+    this.requestUpdate = param.requestUpdate;
   }
 
   detached(): void {
-    this._chart = null;
-    this._series = null;
+    this.seriesApi = null;
+    this.requestUpdate = null;
+    this.renderedBand = null;
   }
 
-  updateData(data: SupportResistancePair): void {
+  updateData(data: SupportResistancePair, theme: ChartTheme): void {
     this._data = data;
+    this.theme = theme;
+    this.requestUpdate?.();
   }
 
   paneViews(): readonly IPrimitivePaneView[] {
-    return [this._paneView];
+    return [this.paneView];
+  }
+
+  autoscaleInfo(): AutoscaleInfo {
+    return {
+      priceRange: {
+        minValue: this._data.support,
+        maxValue: this._data.resistance,
+      },
+    };
+  }
+
+  hitTest(_x: number, y: number): PrimitiveHoveredItem | null {
+    if (!this.renderedBand || y < this.renderedBand.top || y > this.renderedBand.bottom) {
+      return null;
+    }
+
+    return {
+      cursorStyle: 'crosshair',
+      externalId: this.key,
+      hitTestPriority: 0,
+      distance: 0,
+      zOrder: 'normal',
+    };
   }
 
   get data(): SupportResistancePair {
@@ -48,7 +85,19 @@ export class SRPairPrimitive implements ISeriesPrimitive<Time> {
   }
 
   get series() {
-    return this._series;
+    return this.seriesApi;
+  }
+
+  get textColor(): string {
+    return this.theme === 'dark' ? '#f3f5f8' : '#202635';
+  }
+
+  get labelBackground(): string {
+    return this.theme === 'dark' ? 'rgba(15, 20, 31, 0.88)' : 'rgba(255, 255, 255, 0.9)';
+  }
+
+  setRenderedBand(top: number, bottom: number): void {
+    this.renderedBand = { top, bottom };
   }
 }
 
@@ -63,8 +112,8 @@ class SRPairPaneView implements IPrimitivePaneView {
 class SRPairPaneRenderer implements IPrimitivePaneRenderer {
   constructor(private readonly _source: SRPairPrimitive) {}
 
-  draw(target: any): void {
-    target.useBitmapCoordinateSpace((scope: any) => {
+  draw(target: Parameters<IPrimitivePaneRenderer['draw']>[0]): void {
+    target.useBitmapCoordinateSpace((scope) => {
       const series = this._source.series;
       if (!series) return;
       const { support, resistance, label, supportColor, resistanceColor, fillOpacity } =
@@ -80,28 +129,42 @@ class SRPairPaneRenderer implements IPrimitivePaneRenderer {
 
       const top = Math.min(yTop, yBottom) * ratio;
       const bottom = Math.max(yTop, yBottom) * ratio;
+      this._source.setRenderedBand(Math.min(yTop, yBottom), Math.max(yTop, yBottom));
 
-      // One shaded band = the "single object" — not two independent lines.
       ctx.save();
-      ctx.fillStyle = withAlpha(supportColor ?? '#26a69a', fillOpacity ?? 0.12);
+      const supportLineColor = supportColor ?? '#2fc7a1';
+      const resistanceLineColor = resistanceColor ?? '#f06469';
+      ctx.fillStyle = colorWithAlpha(supportLineColor, fillOpacity ?? 0.12);
       ctx.fillRect(0, top, width, bottom - top);
 
-      // Edges belong to the same object: drawn from shared geometry.
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = resistanceColor ?? '#ef5350';
-      ctx.setLineDash([4, 3]);
-      strokeHLine(ctx, top, width, scope.horizontalPixelRatio);
+      ctx.strokeStyle = resistanceLineColor;
+      ctx.setLineDash([
+        EDGE_DASH * scope.horizontalPixelRatio,
+        EDGE_GAP * scope.horizontalPixelRatio,
+      ]);
+      strokeHLine(ctx, top, width, scope.verticalPixelRatio);
 
-      ctx.strokeStyle = supportColor ?? '#26a69a';
-      strokeHLine(ctx, bottom, width, scope.horizontalPixelRatio);
+      ctx.strokeStyle = supportLineColor;
+      strokeHLine(ctx, bottom, width, scope.verticalPixelRatio);
       ctx.restore();
 
       if (label) {
         ctx.save();
-        ctx.font = `${12 * ratio}px sans-serif`;
-        ctx.fillStyle = '#787b86';
+        ctx.font = `600 ${11 * ratio}px Inter, system-ui, sans-serif`;
+        const horizontalRatio = scope.horizontalPixelRatio;
+        const textWidth = ctx.measureText(label).width;
+        const x = 12 * horizontalRatio;
+        const center = (top + bottom) / 2;
+        ctx.fillStyle = this._source.labelBackground;
+        ctx.fillRect(
+          x - 5 * horizontalRatio,
+          center - 10 * ratio,
+          textWidth + 10 * horizontalRatio,
+          20 * ratio,
+        );
+        ctx.fillStyle = this._source.textColor;
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, 8 * ratio, (top + bottom) / 2);
+        ctx.fillText(label, x, center);
         ctx.restore();
       }
     });
@@ -114,12 +177,4 @@ function strokeHLine(ctx: CanvasRenderingContext2D, y: number, width: number, ra
   ctx.lineTo(width, Math.round(y) + 0.5);
   ctx.lineWidth = ratio;
   ctx.stroke();
-}
-
-function withAlpha(hex: string, alpha: number): string {
-  const c = hex.replace('#', '');
-  const r = parseInt(c.substring(0, 2), 16);
-  const g = parseInt(c.substring(2, 4), 16);
-  const b = parseInt(c.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

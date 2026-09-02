@@ -1,29 +1,52 @@
 import { useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { mount } from './levelsChart';
-import type { LevelsChartConfig } from './types';
+import type { LevelsChartConfig, MountedChart } from './types';
 
-/**
- * Thin React wrapper. All chart logic lives in `mount()` — this
- * component only owns the lifecycle glue (mount on effect, update on
- * config change, destroy on unmount).
- */
-export function LevelsChart({ config }: { config: LevelsChartConfig }) {
+export interface LevelsChartProps {
+  config: LevelsChartConfig;
+  className?: string;
+  style?: CSSProperties;
+  ariaLabel?: string;
+  onReady?: (chart: MountedChart) => void;
+}
+
+export function LevelsChart({
+  config,
+  className,
+  style,
+  ariaLabel = 'Market levels chart',
+  onReady,
+}: LevelsChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const handleRef = useRef<ReturnType<typeof mount> | null>(null);
+  const handleRef = useRef<MountedChart | null>(null);
+  const initialConfigRef = useRef(config);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     if (!containerRef.current) return;
-    handleRef.current = mount(containerRef.current, config);
+    const handle = mount(containerRef.current, initialConfigRef.current);
+    handleRef.current = handle;
+    onReadyRef.current?.(handle);
+
     return () => {
-      handleRef.current?.destroy();
+      handle.destroy();
       handleRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     handleRef.current?.update(config);
   }, [config]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      role="region"
+      aria-label={ariaLabel}
+      style={{ width: '100%', height: '100%', ...style }}
+    />
+  );
 }

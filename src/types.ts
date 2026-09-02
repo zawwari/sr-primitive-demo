@@ -1,4 +1,18 @@
-import type { IChartApi, ISeriesApi, SeriesType, Time } from 'lightweight-charts';
+import type {
+  CandlestickData,
+  IChartApi,
+  ISeriesApi,
+  SeriesType,
+  Time,
+} from 'lightweight-charts';
+
+export type ChartTheme = 'light' | 'dark';
+
+export interface MobileChartOptions {
+  enabled?: boolean;
+  breakpoint?: number;
+  screenshotAlt?: string;
+}
 
 /** A single horizontal level (e.g. pivot, VWAP, prior close). */
 export interface SingleLevel {
@@ -34,20 +48,25 @@ export interface GexDexLevel {
   kind: 'gex' | 'dex';
   id: string;
   price: number;
-  magnitude: number; // signed
-  maxMagnitude: number; // for normalizing bar length across the strip
+  magnitude: number;
+  maxMagnitude: number;
+  label?: string;
 }
 
 export type LevelDatum = SingleLevel | SupportResistancePair | GexDexLevel;
 
 export interface LevelsChartConfig {
-  levels: LevelDatum[];
-  theme?: 'light' | 'dark';
+  levels: readonly LevelDatum[];
+  candles?: readonly CandlestickData<Time>[];
+  theme?: ChartTheme;
+  mobile?: MobileChartOptions;
 }
 
 export interface MountedChart {
   update(config: LevelsChartConfig): void;
   destroy(): void;
+  openMobileChart(): Promise<void>;
+  closeMobileChart(): Promise<void>;
   chart: IChartApi;
   mainSeries: ISeriesApi<SeriesType>;
 }
