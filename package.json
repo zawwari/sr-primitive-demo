@@ -1,0 +1,24 @@
+{
+  "name": "sr-pair-primitive-demo",
+  "version": "1.0.0",
+  "description": "Support/resistance pair rendered as a single custom primitive on lightweight-charts, plus single-level and GEX/DEX overlay primitives. Framework-agnostic mount/destroy core with a thin React wrapper.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["lightweight-charts", "trading", "canvas", "primitives", "support-resistance"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "lightweight-charts": "^5.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0 || ^7.0.0",
+    "vite": "^5.4.0 || ^8.0.0",
+    "react": "^18.3.0 || ^19.0.0",
+    "@types/react": "^18.3.0 || ^19.0.0"
+  }
+}
