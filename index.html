@@ -3,14 +3,107 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>S/R Pair Primitive Demo — lightweight-charts</title>
-    <style>
-      html, body { margin: 0; height: 100%; background: #0f1117; font-family: sans-serif; }
-      #chart { width: 100vw; height: 100vh; }
-    </style>
+    <meta
+      name="description"
+      content="Canvas-level support, resistance, GEX and DEX primitives built with lightweight-charts."
+    />
+    <meta name="theme-color" content="#080c13" />
+    <title>Signal Canvas — market levels primitive demo</title>
   </head>
-  <body>
-    <div id="chart"></div>
+  <body data-theme="dark">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label="Signal Canvas home">
+          <span class="brand-mark" aria-hidden="true">SC</span>
+          <span>Signal Canvas</span>
+        </a>
+        <div class="header-meta">
+          <span class="status-dot" aria-hidden="true"></span>
+          Canvas primitives · lightweight-charts
+        </div>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="page-title">
+          <div>
+            <p class="eyebrow">Market structure, without study clutter</p>
+            <h1 id="page-title">Levels that read like market structure.</h1>
+            <p class="hero-copy">
+              A framework-agnostic TypeScript module rendering support, resistance,
+              GEX and DEX directly on the chart canvas.
+            </p>
+          </div>
+          <div class="hero-facts" aria-label="Implementation highlights">
+            <div><strong>3</strong><span>primitive families</span></div>
+            <div><strong>1</strong><span>paired S/R object</span></div>
+            <div><strong>0</strong><span>stock studies</span></div>
+          </div>
+        </section>
+
+        <section class="chart-card" aria-label="Interactive AAPL levels chart">
+          <div class="chart-toolbar">
+            <div class="instrument">
+              <span class="ticker">AAPL</span>
+              <span class="company">Apple Inc.</span>
+              <span class="market-state">Market closed</span>
+            </div>
+            <div class="quote">
+              <strong>104.35</strong>
+              <span>+1.24 · 1.20%</span>
+            </div>
+            <div class="toolbar-actions">
+              <button id="scenario-toggle" class="control-button" type="button">
+                Shift scenario
+              </button>
+              <button id="theme-toggle" class="icon-button" type="button" aria-label="Use light theme">
+                <span aria-hidden="true">☀</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="family-controls" aria-label="Visible level families">
+            <span>Overlays</span>
+            <button type="button" data-family="sr-pair" aria-pressed="true">S/R pair</button>
+            <button type="button" data-family="single" aria-pressed="true">Price levels</button>
+            <button type="button" data-family="gex" aria-pressed="true">GEX</button>
+            <button type="button" data-family="dex" aria-pressed="true">DEX</button>
+          </div>
+
+          <section id="chart" class="chart-stage" aria-label="AAPL candlestick chart with market level overlays"></section>
+
+          <div class="chart-legend" aria-label="Chart legend">
+            <span><i class="legend-sr"></i>Weekly value area</span>
+            <span><i class="legend-pivot"></i>Reference levels</span>
+            <span><i class="legend-gex"></i>GEX filled</span>
+            <span><i class="legend-dex"></i>DEX outlined</span>
+            <small>Exposure bars diverge from zero by sign</small>
+          </div>
+        </section>
+
+        <section class="details-grid" aria-label="Architecture details">
+          <article>
+            <span class="detail-number">01</span>
+            <h2>One object means one object</h2>
+            <p>The support/resistance zone owns both edges, its fill, shared label and hit region.</p>
+          </article>
+          <article>
+            <span class="detail-number">02</span>
+            <h2>Purpose-built exposure profile</h2>
+            <p>GEX uses filled bars; DEX uses outlined bars. Both encode sign and normalized magnitude.</p>
+          </article>
+          <article>
+            <span class="detail-number">03</span>
+            <h2>Mobile by design</h2>
+            <p>Small screens get a lightweight static preview, then a focused landscape chart on tap.</p>
+          </article>
+        </section>
+      </main>
+
+      <footer>
+        <span>Built as a public canvas-primitives demonstration.</span>
+        <span>Advanced Charts assets are not included.</span>
+      </footer>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

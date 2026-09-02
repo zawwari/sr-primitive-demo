@@ -1,28 +1,61 @@
 import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
-import type { LevelsChartConfig, LevelDatum, MountedChart } from './types';
+import type {
+  ChartTheme,
+  GexDexLevel,
+  LevelsChartConfig,
+  LevelDatum,
+  MountedChart,
+} from './types';
 import { SRPairPrimitive } from './primitives/SRPairPrimitive';
 import { SingleLevelPrimitive } from './primitives/SingleLevelPrimitive';
 import { GexDexPrimitive } from './primitives/GexDexPrimitive';
+import { createDeterministicCandles, normalizeConfig } from './chartUtils';
+import {
+  createMobileChartController,
+  type MobileChartController,
+} from './mobileChart';
 
 type AnyPrimitive = SRPairPrimitive | SingleLevelPrimitive | GexDexPrimitive;
 
-/**
- * Framework-agnostic entry point. Mounts a levels chart into `el` and
- * returns a handle with `update()` / `destroy()`. No framework
- * dependency lives in this module — React (or anything else) is a thin
- * wrapper around this contract.
- */
 export function mount(el: HTMLElement, config: LevelsChartConfig): MountedChart {
-  const dark = config.theme === 'dark';
+  const fallbackCandles = createDeterministicCandles();
+  let current = normalizeConfig(config, fallbackCandles);
+  const host = document.createElement('div');
+  const chartContainer = document.createElement('div');
+  let destroyed = false;
+  let mobileController: MobileChartController;
+  let mobileOptionsKey = '';
 
-  const chart = createChart(el, {
+  Object.assign(host.style, {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    minHeight: '260px',
+    overflow: 'hidden',
+    background: themeColors(current.theme).background,
+  });
+  Object.assign(chartContainer.style, {
+    width: '100%',
+    height: '100%',
+  });
+  host.append(chartContainer);
+  el.append(host);
+
+  const chart = createChart(chartContainer, {
     layout: {
-      background: { type: ColorType.Solid, color: dark ? '#0f1117' : '#ffffff' },
-      textColor: dark ? '#d1d4dc' : '#131722',
+      background: { type: ColorType.Solid, color: themeColors(current.theme).background },
+      textColor: themeColors(current.theme).text,
+      fontFamily: 'Inter, system-ui, sans-serif',
     },
     grid: {
-      vertLines: { color: dark ? '#1e222d' : '#f0f3fa' },
-      horzLines: { color: dark ? '#1e222d' : '#f0f3fa' },
+      vertLines: { color: themeColors(current.theme).grid },
+      horzLines: { color: themeColors(current.theme).grid },
+    },
+    rightPriceScale: { borderColor: themeColors(current.theme).border },
+    timeScale: { borderColor: themeColors(current.theme).border, timeVisible: true },
+    crosshair: {
+      vertLine: { color: themeColors(current.theme).crosshair },
+      horzLine: { color: themeColors(current.theme).crosshair },
     },
     autoSize: true,
   });
@@ -35,79 +68,150 @@ export function mount(el: HTMLElement, config: LevelsChartConfig): MountedChart 
     wickDownColor: '#ef5350',
   });
 
-  mainSeries.setData(sampleCandles());
+  mainSeries.setData(current.candles);
 
-  const primitives: AnyPrimitive[] = [];
+  const primitives = new Map<string, AnyPrimitive>();
 
-  function attachLevels(levels: LevelDatum[]) {
-    // Clear existing primitives before re-applying.
-    for (const p of primitives) {
-      mainSeries.detachPrimitive(p as any);
-    }
-    primitives.length = 0;
+  function attach(primitive: AnyPrimitive): void {
+    mainSeries.attachPrimitive(primitive);
+    primitives.set(primitive.key, primitive);
+  }
+
+  function reconcileLevels(levels: readonly LevelDatum[], theme: ChartTheme): void {
+    const retainedKeys = new Set<string>();
+    const exposureGroups: Record<GexDexLevel['kind'], GexDexLevel[]> = {
+      gex: [],
+      dex: [],
+    };
 
     for (const level of levels) {
-      let primitive: AnyPrimitive;
       switch (level.kind) {
-        case 'sr-pair':
-          primitive = new SRPairPrimitive(level);
+        case 'sr-pair': {
+          const key = `sr-pair:${level.id}`;
+          retainedKeys.add(key);
+          const existing = primitives.get(key);
+          if (existing instanceof SRPairPrimitive) {
+            existing.updateData(level, theme);
+          } else {
+            attach(new SRPairPrimitive(level, theme));
+          }
           break;
-        case 'single':
-          primitive = new SingleLevelPrimitive(level);
+        }
+        case 'single': {
+          const key = `single:${level.id}`;
+          retainedKeys.add(key);
+          const existing = primitives.get(key);
+          if (existing instanceof SingleLevelPrimitive) {
+            existing.updateData(level, theme);
+          } else {
+            attach(new SingleLevelPrimitive(level, theme));
+          }
           break;
+        }
         case 'gex':
         case 'dex':
-          primitive = new GexDexPrimitive(level);
+          exposureGroups[level.kind].push(level);
           break;
       }
-      mainSeries.attachPrimitive(primitive as any);
-      primitives.push(primitive);
+    }
+
+    for (const kind of ['gex', 'dex'] as const) {
+      const groupedLevels = exposureGroups[kind];
+      const key = `exposure:${kind}`;
+      if (groupedLevels.length === 0) continue;
+      retainedKeys.add(key);
+      const existing = primitives.get(key);
+      if (existing instanceof GexDexPrimitive && existing.kind === kind) {
+        existing.updateData(groupedLevels, theme);
+      } else {
+        attach(new GexDexPrimitive(kind, groupedLevels, theme));
+      }
+    }
+
+    for (const [key, primitive] of primitives) {
+      if (retainedKeys.has(key)) continue;
+      mainSeries.detachPrimitive(primitive);
+      primitives.delete(key);
     }
   }
 
-  attachLevels(config.levels);
+  function applyTheme(theme: ChartTheme): void {
+    const colors = themeColors(theme);
+    host.style.background = colors.background;
+    chart.applyOptions({
+      layout: {
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
+      },
+      rightPriceScale: { borderColor: colors.border },
+      timeScale: { borderColor: colors.border },
+      crosshair: {
+        vertLine: { color: colors.crosshair },
+        horzLine: { color: colors.crosshair },
+      },
+    });
+  }
+
+  function configureMobile(): void {
+    const nextKey = JSON.stringify(current.mobile);
+    if (nextKey === mobileOptionsKey) return;
+    mobileController?.destroy();
+    mobileController = createMobileChartController(
+      host,
+      chartContainer,
+      chart,
+      current.mobile,
+    );
+    mobileOptionsKey = nextKey;
+  }
+
+  reconcileLevels(current.levels, current.theme);
+  configureMobile();
   chart.timeScale().fitContent();
 
   return {
     chart,
     mainSeries,
     update(next: LevelsChartConfig) {
-      attachLevels(next.levels);
+      if (destroyed) return;
+      current = normalizeConfig(next, current.candles);
+      mainSeries.setData(current.candles);
+      applyTheme(current.theme);
+      reconcileLevels(current.levels, current.theme);
+      configureMobile();
+      mobileController.refreshScreenshot();
+    },
+    async openMobileChart() {
+      if (!destroyed) await mobileController.open();
+    },
+    async closeMobileChart() {
+      if (!destroyed) await mobileController.close();
     },
     destroy() {
-      for (const p of primitives) {
-        mainSeries.detachPrimitive(p as any);
+      if (destroyed) return;
+      destroyed = true;
+      mobileController.destroy();
+      for (const primitive of primitives.values()) {
+        mainSeries.detachPrimitive(primitive);
       }
-      primitives.length = 0;
+      primitives.clear();
       chart.remove();
+      host.remove();
     },
   };
 }
 
-/** Small fixed sample series so the demo is self-contained. */
-function sampleCandles() {
-  const base = 100;
-  const data = [];
-  let price = base;
-  const start = Math.floor(Date.UTC(2026, 0, 1) / 1000);
-  for (let i = 0; i < 90; i++) {
-    const open = price;
-    const drift = (Math.sin(i / 7) + (Math.random() - 0.5)) * 1.5;
-    const close = open + drift;
-    const high = Math.max(open, close) + Math.random() * 1.2;
-    const low = Math.min(open, close) - Math.random() * 1.2;
-    price = close;
-    data.push({
-      time: (start + i * 86400) as any,
-      open: round2(open),
-      high: round2(high),
-      low: round2(low),
-      close: round2(close),
-    });
-  }
-  return data;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+function themeColors(theme: ChartTheme) {
+  const dark = theme === 'dark';
+  return {
+    background: dark ? '#0b0f17' : '#ffffff',
+    text: dark ? '#a9b1c3' : '#596174',
+    grid: dark ? '#171d29' : '#edf0f5',
+    border: dark ? '#263043' : '#d8dde7',
+    crosshair: dark ? '#65718a' : '#8791a5',
+  };
 }
